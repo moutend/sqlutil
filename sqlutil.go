@@ -57,6 +57,10 @@ func mapOf(i interface{}) (map[string]interface{}, error) {
 
 // Bind reads the rows and binds that values to the i.
 // Scan accepts struct and slice.
+//
+// Note: you must call rows.Close() after calling this func.
+//
+// For more details, see https://github.com/moutend/sqlutil.
 func Bind(rows *sql.Rows, i interface{}) error {
 	return bind(rows, i)
 }
