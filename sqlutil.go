@@ -4,8 +4,16 @@ import (
 	"database/sql"
 	"fmt"
 	"reflect"
-	"strings"
+
+	"github.com/iancoleman/strcase"
+	"github.com/pkg/errors"
 )
+
+type FakeScanner struct{}
+
+func (FakeScanner) Scan(interface{}) error {
+	return nil
+}
 
 func setFields(rows *sql.Rows, m map[string]interface{}) error {
 	columns, err := rows.Columns()
@@ -20,7 +28,7 @@ func setFields(rows *sql.Rows, m map[string]interface{}) error {
 		if v, ok := m[column]; ok {
 			args[i] = v
 		} else {
-			args[i] = struct{}{}
+			args[i] = FakeScanner{}
 		}
 	}
 	if err := rows.Scan(args...); err != nil {
@@ -41,7 +49,7 @@ func mapOf(i interface{}) (map[string]interface{}, error) {
 		}
 
 		key := rv.Type().Field(n).Name
-		m[strings.ToLower(key)] = rv.Field(n).Addr().Interface()
+		m[strcase.ToSnake(key)] = rv.Field(n).Addr().Interface()
 	}
 
 	return m, nil
@@ -50,13 +58,20 @@ func mapOf(i interface{}) (map[string]interface{}, error) {
 // Bind reads the rows and binds that values to the i.
 // Scan accepts struct and slice.
 func Bind(rows *sql.Rows, i interface{}) error {
+	return bind(rows, i)
+}
+
+func bind(rows *sql.Rows, i interface{}) (err error) {
 	defer func() {
+		if r := recover(); r != nil {
+			err = errors.Wrap(err, "sqlutil:")
+		}
 	}()
 
 	rv := reflect.ValueOf(i).Elem()
 
 	if !rv.CanSet() {
-		return fmt.Errorf("brs: specify pointer of i")
+		return errors.New("specify pointer of i")
 	}
 	switch rv.Kind() {
 	case reflect.Struct:
@@ -64,7 +79,7 @@ func Bind(rows *sql.Rows, i interface{}) error {
 	case reflect.Slice:
 		return bindSlice(rows, i)
 	default:
-		return fmt.Errorf("brs: type %t is not supported", i)
+		return errors.New(fmt.Sprintf("type %t is not supported", i))
 	}
 
 	return nil
