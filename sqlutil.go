@@ -1,4 +1,4 @@
-package brs
+package sqlutil
 
 import (
 	"database/sql"
@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-func bindRows(rows *sql.Rows, m map[string]interface{}) error {
+func setFields(rows *sql.Rows, m map[string]interface{}) error {
 	columns, err := rows.Columns()
 
 	if err != nil {
@@ -47,9 +47,9 @@ func mapOf(i interface{}) (map[string]interface{}, error) {
 	return m, nil
 }
 
-// Scan reads the rows and binds that values to the i.
+// Bind reads the rows and binds that values to the i.
 // Scan accepts struct and slice.
-func Scan(rows *sql.Rows, i interface{}) error {
+func Bind(rows *sql.Rows, i interface{}) error {
 	defer func() {
 	}()
 
@@ -60,9 +60,9 @@ func Scan(rows *sql.Rows, i interface{}) error {
 	}
 	switch rv.Kind() {
 	case reflect.Struct:
-		return scanStruct(rows, i)
+		return bindStruct(rows, i)
 	case reflect.Slice:
-		return scanSlice(rows, i)
+		return bindSlice(rows, i)
 	default:
 		return fmt.Errorf("brs: type %t is not supported", i)
 	}
@@ -70,7 +70,7 @@ func Scan(rows *sql.Rows, i interface{}) error {
 	return nil
 }
 
-func scanSlice(rows *sql.Rows, i interface{}) error {
+func bindSlice(rows *sql.Rows, i interface{}) error {
 	rv := reflect.ValueOf(i).Elem()
 
 	for rows.Next() {
@@ -81,7 +81,7 @@ func scanSlice(rows *sql.Rows, i interface{}) error {
 		if err != nil {
 			return err
 		}
-		if err := bindRows(rows, m); err != nil {
+		if err := setFields(rows, m); err != nil {
 			return err
 		}
 
@@ -91,7 +91,7 @@ func scanSlice(rows *sql.Rows, i interface{}) error {
 	return nil
 }
 
-func scanStruct(rows *sql.Rows, i interface{}) error {
+func bindStruct(rows *sql.Rows, i interface{}) error {
 	if !rows.Next() {
 		return nil
 	}
@@ -100,7 +100,7 @@ func scanStruct(rows *sql.Rows, i interface{}) error {
 	if err != nil {
 		return err
 	}
-	if err := bindRows(rows, m); err != nil {
+	if err := setFields(rows, m); err != nil {
 		return err
 	}
 
