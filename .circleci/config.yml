@@ -10,7 +10,7 @@ jobs:
     parallelism: 2
     steps:
       - checkout
-      - restore_cache: # restores saved cache if no changes are detected since last run
+      - restore_cache:
           keys:
             - go-mod-v4-{{ checksum "go.sum" }}
       - run:
@@ -20,8 +20,10 @@ jobs:
           name: Run unit tests
           environment:
             DATABASE_URI: "postgres://circleci-demo-go@localhost:5432/circle_test?sslmode=disable"
-          command: go test
+          command: go test -v
       - run:
+          name: Store cache
+          command: go build
           key: go-mod-v4-{{ checksum "go.sum" }}
           paths:
             - "/go/pkg/mod"
