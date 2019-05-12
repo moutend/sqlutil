@@ -14,7 +14,8 @@ import (
 )
 
 func setupDB() (*sql.DB, error) {
-	db, err := sql.Open("postgres", os.Getenv("DATABASE_URI"))
+	source := os.Getenv("DATABASE_URI")
+	db, err := sql.Open("postgres", source)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to open '%s'", source)
 	}
