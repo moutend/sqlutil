@@ -1,6 +1,8 @@
 sqlutil
 =======
 
+[![CircleCI](https://circleci.com/gh/moutend/sqlutil/tree/master.svg?style=svg)](https://circleci.com/gh/moutend/sqlutil/tree/master)
+
 Provides handy way to bind the `*database/sql.Rows` to the slice or struct.
 
 ## Usage
