@@ -14,13 +14,7 @@ import (
 )
 
 func setupDB() (*sql.DB, error) {
-	source := fmt.Sprintf(
-		"user=%s dbname=%s password=%s sslmode=disable",
-		os.Getenv("TEST_DATABASE_USERNAME"),
-		os.Getenv("TEST_DATABASE_DBNAME"),
-		os.Getenv("TEST_DATABASE_PASSWORD"),
-	)
-	db, err := sql.Open("postgres", source)
+	db, err := sql.Open("postgres", os.Getenv("DATABASE_URI"))
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to open '%s'", source)
 	}
