@@ -2,7 +2,6 @@ package sqlutil
 
 import (
 	"database/sql"
-	"fmt"
 	"reflect"
 
 	"github.com/iancoleman/strcase"
@@ -66,27 +65,17 @@ func Bind(rows *sql.Rows, i interface{}) error {
 }
 
 func bind(rows *sql.Rows, i interface{}) (err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			err = errors.Wrap(err, "sqlutil:")
-		}
-	}()
-
-	rv := reflect.ValueOf(i).Elem()
-
-	if !rv.CanSet() {
-		return errors.New("specify pointer of i")
+	if reflect.ValueOf(i).Kind() != reflect.Ptr {
+		return errors.New("sqlutil: specify a pointer")
 	}
-	switch rv.Kind() {
+	switch reflect.ValueOf(i).Elem().Kind() {
 	case reflect.Struct:
 		return bindStruct(rows, i)
 	case reflect.Slice:
 		return bindSlice(rows, i)
-	default:
-		return errors.New(fmt.Sprintf("type %t is not supported", i))
 	}
 
-	return nil
+	return bindScanner(rows, i)
 }
 
 func bindSlice(rows *sql.Rows, i interface{}) error {
@@ -121,6 +110,25 @@ func bindStruct(rows *sql.Rows, i interface{}) error {
 	}
 	if err := setFields(rows, m); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func bindScanner(rows *sql.Rows, i interface{}) error {
+	if !rows.Next() {
+		return nil
+	}
+
+	columns, err := rows.Columns()
+	if err != nil {
+		return err
+	}
+	if len(columns) != 1 {
+		return errors.New("sqlutil: found more than 1 columns")
+	}
+	if err := rows.Scan(i); err != nil {
+		return errors.Wrap(err, "sqlutil: failed to scan")
 	}
 
 	return nil
