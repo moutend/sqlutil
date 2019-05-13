@@ -1,4 +1,4 @@
-module sqlutil
+module github.com/moutend/sqlutil
 
 require (
 	github.com/ericlagergren/decimal v0.0.0-20190507143103-cc8cbe209b64 // indirect
