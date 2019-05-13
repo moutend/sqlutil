@@ -207,7 +207,6 @@ func TestBind_builtin(t *testing.T) {
 	assert.Equal(t, "Game of Thresholds - Episode 1", title)
 }
 
-/*
 func TestBind_builtin_slice(t *testing.T) {
 	db, err := setupDB()
 	assert.Nil(t, err)
@@ -234,7 +233,6 @@ func TestBind_builtin_slice(t *testing.T) {
 		assert.Equal(t, fmt.Sprintf("Game of Thresholds - Episode %d", i+1), title)
 	}
 }
-*/
 
 func TestBind_struct(t *testing.T) {
 	db, err := setupDB()
@@ -293,6 +291,42 @@ func TestBind_struct_slice(t *testing.T) {
 		assert.True(t, !book.PublishedAt.IsZero())
 		assert.True(t, !book.CreatedAt.IsZero())
 		assert.True(t, !book.UpdatedAt.IsZero())
+	}
+}
+
+func TestBind_scanner_slice(t *testing.T) {
+	db, err := setupDB()
+	assert.Nil(t, err)
+
+	if err != nil {
+		return
+	}
+	defer db.Close()
+
+	assert.Nil(t, setupData(db))
+	defer teardownData(db)
+
+	query := `SELECT author, price FROM book ORDER BY id`
+	rows, err := db.Query(query)
+	assert.Nil(t, err)
+	defer rows.Close()
+
+	var books []struct {
+		Author string
+		Price  types.Decimal
+	}
+
+	assert.Nil(t, Bind(rows, &books))
+	assert.Equal(t, 10000, len(books))
+
+	for i, book := range books {
+		assert.Equal(t, "Alice", book.Author)
+		assert.NotNil(t, book.Price.Big)
+		assert.Equal(t, 2, book.Price.Big.Scale())
+
+		f64, ok := book.Price.Big.Float64()
+		assert.True(t, ok)
+		assert.Equal(t, float64(i+1)*10+0.99, f64)
 	}
 }
 
@@ -378,39 +412,5 @@ GROUP BY author
 	for _, book := range books {
 		assert.Equal(t, "Alice", book.Author)
 		assert.Equal(t, 10000, book.NumberOfBooks)
-	}
-}
-
-func TestBind_scanner(t *testing.T) {
-	db, err := setupDB()
-	assert.Nil(t, err)
-
-	if err != nil {
-		return
-	}
-	defer db.Close()
-
-	assert.Nil(t, setupData(db))
-	defer teardownData(db)
-
-	var books []struct {
-		Price types.Decimal
-	}
-
-	query := `SELECT price FROM book ORDER BY id`
-	rows, err := db.Query(query)
-	assert.Nil(t, err)
-	defer rows.Close()
-
-	assert.Nil(t, Bind(rows, &books))
-	assert.Equal(t, 10000, len(books))
-
-	for i, book := range books {
-		assert.NotNil(t, book.Price.Big)
-		assert.Equal(t, 2, book.Price.Big.Scale())
-
-		f64, ok := book.Price.Big.Float64()
-		assert.True(t, ok)
-		assert.Equal(t, float64(i+1)*10+0.99, f64)
 	}
 }

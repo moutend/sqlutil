@@ -79,6 +79,14 @@ func bind(rows *sql.Rows, i interface{}) (err error) {
 }
 
 func bindSlice(rows *sql.Rows, i interface{}) error {
+	if reflect.ValueOf(i).Elem().Type().Elem().Kind() == reflect.Struct {
+		return bindStructSlice(rows, i)
+	}
+
+	return bindScannerSlice(rows, i)
+}
+
+func bindStructSlice(rows *sql.Rows, i interface{}) error {
 	rv := reflect.ValueOf(i).Elem()
 
 	for rows.Next() {
@@ -91,6 +99,29 @@ func bindSlice(rows *sql.Rows, i interface{}) error {
 		}
 		if err := setFields(rows, m); err != nil {
 			return err
+		}
+
+		rv.Set(reflect.Append(rv, cv.Elem()))
+	}
+
+	return nil
+}
+
+func bindScannerSlice(rows *sql.Rows, i interface{}) error {
+	rv := reflect.ValueOf(i).Elem()
+
+	for rows.Next() {
+		cv := reflect.New(rv.Type().Elem())
+
+		columns, err := rows.Columns()
+		if err != nil {
+			return err
+		}
+		if len(columns) != 1 {
+			return errors.New("sqlutil: found more than 1 columns")
+		}
+		if err := rows.Scan(cv.Interface()); err != nil {
+			return errors.Wrap(err, "sqlutil: failed to scan")
 		}
 
 		rv.Set(reflect.Append(rv, cv.Elem()))
