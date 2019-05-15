@@ -3,7 +3,10 @@ package sqlutil
 import (
 	"database/sql"
 	"fmt"
+	"io/ioutil"
+	"log"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -37,30 +40,34 @@ func setupDB() (*sql.DB, error) {
 	return db, nil
 }
 
-func createTables(db *sql.DB) error {
-	query := `
-CREATE TABLE book (
-  id BIGSERIAL NOT NULL,
-  title VARCHAR(256) NOT NULL,
-  author VARCHAR(128) NOT NULL,
-  price DECIMAL NOT NULL,
-  published_at TIMESTAMP WITHOUT TIME ZONE NOT NULL,
-  created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY(id)
-)
-`
-	if _, err := db.Exec(query); err != nil {
+func migrationUp(db *sql.DB) error {
+	data, err := ioutil.ReadFile(filepath.Join("testdata", "0001_unittest.up.sql"))
+	if err != nil {
+		return err
+	}
+	if _, err := db.Exec(string(data)); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func insertValues(db *sql.DB) error {
+func migrationDown(db *sql.DB) error {
+	data, err := ioutil.ReadFile(filepath.Join("testdata", "0001_unittest.down.sql"))
+	if err != nil {
+		return err
+	}
+	if _, err := db.Exec(string(data)); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func insertValues(tx *sql.Tx) error {
 	for i := 0; i < 10000; i++ {
 		query := `INSERT INTO book (title, author, price, published_at) VALUES ($1, $2, $3, $4)`
-		if _, err := db.Exec(
+		if _, err := tx.Exec(
 			query,
 			fmt.Sprintf("Game of Thresholds - Episode %d", i+1),
 			"Alice",
@@ -74,38 +81,58 @@ func insertValues(db *sql.DB) error {
 	return nil
 }
 
-func setupData(db *sql.DB) error {
-	if err := createTables(db); err != nil {
-		return err
-	}
-	if err := insertValues(db); err != nil {
+func setupData(tx *sql.Tx) error {
+	if err := insertValues(tx); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func teardownData(db *sql.DB) {
-	query := `DROP TABLE book;`
-	if _, err := db.Exec(query); err != nil {
-		panic(err)
+func TestMain(m *testing.M) {
+	code := 0
+	defer func() {
+		os.Exit(code)
+	}()
+
+	db, err := setupDB()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer db.Close()
+
+	if err := migrationUp(db); err != nil {
+		log.Fatal(err)
+	}
+
+	code = m.Run()
+
+	if err := migrationDown(db); err != nil {
+		log.Fatal(err)
 	}
 }
 
 func TestBind_invalid_builtin(t *testing.T) {
 	db, err := setupDB()
-	assert.Nil(t, err)
+	assert.NoError(t, err)
 
 	if err != nil {
 		return
 	}
 	defer db.Close()
 
-	assert.Nil(t, setupData(db))
-	defer teardownData(db)
+	tx, err := db.Begin()
+	assert.NoError(t, err)
+
+	if err != nil {
+		return
+	}
+	defer tx.Rollback()
+
+	assert.NoError(t, setupData(tx))
 
 	query := `SELECT price FROM book ORDER BY id LIMIT 1`
-	rows, err := db.Query(query)
+	rows, err := tx.Query(query)
 	assert.Nil(t, err)
 	defer rows.Close()
 
@@ -117,19 +144,26 @@ func TestBind_invalid_builtin(t *testing.T) {
 
 func TestBind_invalid_builtin_slice(t *testing.T) {
 	db, err := setupDB()
-	assert.Nil(t, err)
+	assert.NoError(t, err)
 
 	if err != nil {
 		return
 	}
 	defer db.Close()
 
-	assert.Nil(t, setupData(db))
-	defer teardownData(db)
+	tx, err := db.Begin()
+	assert.NoError(t, err)
+
+	if err != nil {
+		return
+	}
+	defer tx.Rollback()
+
+	assert.NoError(t, setupData(tx))
 
 	query := `SELECT price FROM book ORDER BY id LIMIT 10`
-	rows, err := db.Query(query)
-	assert.Nil(t, err)
+	rows, err := tx.Query(query)
+	assert.NoError(t, err)
 	defer rows.Close()
 
 	var f64s []float64
@@ -140,19 +174,26 @@ func TestBind_invalid_builtin_slice(t *testing.T) {
 
 func TestBind_invalid_struct(t *testing.T) {
 	db, err := setupDB()
-	assert.Nil(t, err)
+	assert.NoError(t, err)
 
 	if err != nil {
 		return
 	}
 	defer db.Close()
 
-	assert.Nil(t, setupData(db))
-	defer teardownData(db)
+	tx, err := db.Begin()
+	assert.NoError(t, err)
+
+	if err != nil {
+		return
+	}
+	defer tx.Rollback()
+
+	assert.NoError(t, setupData(tx))
 
 	query := `SELECT * FROM book ORDER BY id LIMIT 1`
-	rows, err := db.Query(query)
-	assert.Nil(t, err)
+	rows, err := tx.Query(query)
+	assert.NoError(t, err)
 	defer rows.Close()
 
 	var book Book
@@ -163,70 +204,91 @@ func TestBind_invalid_struct(t *testing.T) {
 
 func TestBind_invalid_struct_slice(t *testing.T) {
 	db, err := setupDB()
-	assert.Nil(t, err)
+	assert.NoError(t, err)
 
 	if err != nil {
 		return
 	}
 	defer db.Close()
 
-	assert.Nil(t, setupData(db))
-	defer teardownData(db)
+	tx, err := db.Begin()
+	assert.NoError(t, err)
+
+	if err != nil {
+		return
+	}
+	defer tx.Rollback()
+
+	assert.NoError(t, setupData(tx))
 
 	query := `SELECT * FROM book ORDER BY id LIMIT 10`
-	rows, err := db.Query(query)
-	assert.Nil(t, err)
+	rows, err := tx.Query(query)
+	assert.NoError(t, err)
 	defer rows.Close()
 
 	var books []Book
 
 	err = Bind(rows, books)
-	assert.NotNil(t, err)
+	assert.NotNil(t, err, "because not a pointer")
 }
 
 func TestBind_builtin(t *testing.T) {
 	db, err := setupDB()
-	assert.Nil(t, err)
+	assert.NoError(t, err)
 
 	if err != nil {
 		return
 	}
 	defer db.Close()
 
-	assert.Nil(t, setupData(db))
-	defer teardownData(db)
+	tx, err := db.Begin()
+	assert.NoError(t, err)
+
+	if err != nil {
+		return
+	}
+	defer tx.Rollback()
+
+	assert.NoError(t, setupData(tx))
 
 	query := `SELECT title FROM book ORDER BY id LIMIT 1`
-	rows, err := db.Query(query)
-	assert.Nil(t, err)
+	rows, err := tx.Query(query)
+	assert.NoError(t, err)
 	defer rows.Close()
 
 	var title string
 
-	assert.Nil(t, Bind(rows, &title))
+	assert.NoError(t, Bind(rows, &title))
 	assert.Equal(t, "Game of Thresholds - Episode 1", title)
 }
 
 func TestBind_builtin_slice(t *testing.T) {
 	db, err := setupDB()
-	assert.Nil(t, err)
+	assert.NoError(t, err)
 
 	if err != nil {
 		return
 	}
 	defer db.Close()
 
-	assert.Nil(t, setupData(db))
-	defer teardownData(db)
+	tx, err := db.Begin()
+	assert.NoError(t, err)
+
+	if err != nil {
+		return
+	}
+	defer tx.Rollback()
+
+	assert.NoError(t, setupData(tx))
 
 	query := `SELECT title FROM book ORDER BY id LIMIT 10`
-	rows, err := db.Query(query)
-	assert.Nil(t, err)
+	rows, err := tx.Query(query)
+	assert.NoError(t, err)
 	defer rows.Close()
 
 	var titles []string
 
-	assert.Nil(t, Bind(rows, &titles))
+	assert.NoError(t, Bind(rows, &titles))
 	assert.Equal(t, 10, len(titles))
 
 	for i, title := range titles {
@@ -236,19 +298,26 @@ func TestBind_builtin_slice(t *testing.T) {
 
 func TestBind_struct(t *testing.T) {
 	db, err := setupDB()
-	assert.Nil(t, err)
+	assert.NoError(t, err)
 
 	if err != nil {
 		return
 	}
 	defer db.Close()
 
-	assert.Nil(t, setupData(db))
-	defer teardownData(db)
+	tx, err := db.Begin()
+	assert.NoError(t, err)
+
+	if err != nil {
+		return
+	}
+	defer tx.Rollback()
+
+	assert.NoError(t, setupData(tx))
 
 	query := `SELECT * FROM book ORDER BY id LIMIT 1`
-	rows, err := db.Query(query)
-	assert.Nil(t, err)
+	rows, err := tx.Query(query)
+	assert.NoError(t, err)
 	defer rows.Close()
 
 	var book Book
@@ -264,19 +333,26 @@ func TestBind_struct(t *testing.T) {
 
 func TestBind_struct_slice(t *testing.T) {
 	db, err := setupDB()
-	assert.Nil(t, err)
+	assert.NoError(t, err)
 
 	if err != nil {
 		return
 	}
 	defer db.Close()
 
-	assert.Nil(t, setupData(db))
-	defer teardownData(db)
+	tx, err := db.Begin()
+	assert.NoError(t, err)
+
+	if err != nil {
+		return
+	}
+	defer tx.Rollback()
+
+	assert.NoError(t, setupData(tx))
 
 	query := `SELECT * FROM book ORDER BY id LIMIT 10`
-	rows, err := db.Query(query)
-	assert.Nil(t, err)
+	rows, err := tx.Query(query)
+	assert.NoError(t, err)
 	defer rows.Close()
 
 	var books []Book
@@ -296,19 +372,26 @@ func TestBind_struct_slice(t *testing.T) {
 
 func TestBind_scanner_slice(t *testing.T) {
 	db, err := setupDB()
-	assert.Nil(t, err)
+	assert.NoError(t, err)
 
 	if err != nil {
 		return
 	}
 	defer db.Close()
 
-	assert.Nil(t, setupData(db))
-	defer teardownData(db)
+	tx, err := db.Begin()
+	assert.NoError(t, err)
+
+	if err != nil {
+		return
+	}
+	defer tx.Rollback()
+
+	assert.NoError(t, setupData(tx))
 
 	query := `SELECT author, price FROM book ORDER BY id`
-	rows, err := db.Query(query)
-	assert.Nil(t, err)
+	rows, err := tx.Query(query)
+	assert.NoError(t, err)
 	defer rows.Close()
 
 	var books []struct {
@@ -316,7 +399,7 @@ func TestBind_scanner_slice(t *testing.T) {
 		Price  types.Decimal
 	}
 
-	assert.Nil(t, Bind(rows, &books))
+	assert.NoError(t, Bind(rows, &books))
 	assert.Equal(t, 10000, len(books))
 
 	for i, book := range books {
@@ -332,48 +415,58 @@ func TestBind_scanner_slice(t *testing.T) {
 
 func TestBind_nil_slice(t *testing.T) {
 	db, err := setupDB()
-	assert.Nil(t, err)
+	assert.NoError(t, err)
 
 	if err != nil {
 		return
 	}
 	defer db.Close()
 
-	assert.Nil(t, createTables(db))
-	defer teardownData(db)
+	tx, err := db.Begin()
+	assert.NoError(t, err)
+
+	if err != nil {
+		return
+	}
+	defer tx.Rollback()
 
 	var books []Book
 
 	query := `SELECT * FROM book ORDER BY id`
-	rows, err := db.Query(query)
-	assert.Nil(t, err)
+	rows, err := tx.Query(query)
+	assert.NoError(t, err)
 	defer rows.Close()
 
-	assert.Nil(t, Bind(rows, &books))
+	assert.NoError(t, Bind(rows, &books))
 	assert.Nil(t, books)
 	assert.Equal(t, 0, len(books))
 }
 
 func TestBind_zero_length_slice(t *testing.T) {
 	db, err := setupDB()
-	assert.Nil(t, err)
+	assert.NoError(t, err)
 
 	if err != nil {
 		return
 	}
 	defer db.Close()
 
-	assert.Nil(t, createTables(db))
-	defer teardownData(db)
+	tx, err := db.Begin()
+	assert.NoError(t, err)
+
+	if err != nil {
+		return
+	}
+	defer tx.Rollback()
 
 	books := make([]Book, 0)
 
 	query := `SELECT * FROM book ORDER BY id`
-	rows, err := db.Query(query)
-	assert.Nil(t, err)
+	rows, err := tx.Query(query)
+	assert.NoError(t, err)
 	defer rows.Close()
 
-	assert.Nil(t, Bind(rows, &books))
+	assert.NoError(t, Bind(rows, &books))
 	assert.NotNil(t, books)
 	assert.Equal(t, 0, len(books))
 }
@@ -387,8 +480,15 @@ func TestBind_count(t *testing.T) {
 	}
 	defer db.Close()
 
-	assert.Nil(t, setupData(db))
-	defer teardownData(db)
+	tx, err := db.Begin()
+	assert.NoError(t, err)
+
+	if err != nil {
+		return
+	}
+	defer tx.Rollback()
+
+	assert.NoError(t, setupData(tx))
 
 	var books []struct {
 		Author        string
@@ -402,11 +502,11 @@ SELECT
 FROM book
 GROUP BY author
 `
-	rows, err := db.Query(query)
-	assert.Nil(t, err)
+	rows, err := tx.Query(query)
+	assert.NoError(t, err)
 	defer rows.Close()
 
-	assert.Nil(t, Bind(rows, &books))
+	assert.NoError(t, Bind(rows, &books))
 	assert.Equal(t, 1, len(books))
 
 	for _, book := range books {
